@@ -15,6 +15,15 @@
 #include <string>
 #include <vector>
 
+// 메쉬 데이터 저장용 구조체
+struct MeshData {
+	GLuint VAO;
+	GLuint VBO;
+	GLuint EBO;
+	unsigned int indexCount;
+};
+
+
 class GameObject;
 class PlayerObject;
 class Scene
@@ -29,6 +38,9 @@ private:
 	int teapotVertexCount;
 
 	PlayerObject* player;
+
+	const aiScene* scene;
+	std::vector<MeshData> meshes;
 
 	GameObject* objects[10];
 	int objectCount;
@@ -63,5 +75,14 @@ public:
 	static std::string readFile(std::string filename);
 	static std::vector<glm::vec3> readOBJ(std::string filename);
 
+
+	/// 모델 로드 함수
+	const aiScene* loadModel(const std::string& filePath);
+	// 메쉬 데이터 처리 함수
+	MeshData processMesh(const aiMesh* mesh);
+
+	void processNode(aiNode* node, const aiScene* scene, std::vector<MeshData>& meshes);
+
+	glm::mat4 calculateBoneTransform(float animationTime, const aiNodeAnim* channel);
 };
 

@@ -25,8 +25,8 @@ void Scene::initialize()
 	shader = makeShader("./Shader/vertex.glsl", "./Shader/fragment.glsl");
 	plainShader = makeShader("./Shader/plainVert.glsl", "./Shader/plainFrag.glsl");
 
-	initBuffer(&sphereVAO, &sphereVertexCount, "./OBJ/sphere.obj");
-	initBuffer(&teapotVAO, &teapotVertexCount, "./OBJ/teapot.obj");
+	// initBuffer(&sphereVAO, &sphereVertexCount, "./model/OBJ/sphere.obj");
+	// initBuffer(&teapotVAO, &teapotVertexCount, "./model/OBJ/teapot.obj");
 
 	player = new PlayerObject;
 
@@ -40,20 +40,16 @@ void Scene::initialize()
 	objects[0]->setShader(shader);
 	objects[0]->setVAO(sphereVAO, sphereVertexCount);
 	objects[0]->setPosition(0.f, 0.5f, 0.f);
-	objects[1] = new RotateObject;		// 업캐스팅
-	objects[1]->setShader(shader);
-	objects[1]->setVAO(sphereVAO, sphereVertexCount);
-	objects[1]->setPosition(2.f, 0.5f, 0.f);
-	objects[2] = new RotateObject;		// 업캐스팅
-	objects[2]->setShader(shader);
-	objects[2]->setVAO(teapotVAO, teapotVertexCount);
-	objects[2]->setPosition(2.f, 0.5f, -2.f);
-	objects[3] = new RotateObject;		// 업캐스팅
-	objects[3]->setShader(shader);
-	objects[3]->setVAO(teapotVAO, teapotVertexCount);
-	objects[3]->setPosition(2.f, 0.5f, 2.f);
 
-	objectCount = 4;
+	objectCount = 1;
+
+
+	// 모델 로드
+	scene = loadModel("./model/fbx/link.fbx");
+	if (!scene) exit(0);
+
+	processNode(scene->mRootNode, scene, meshes);
+
 }
 
 void Scene::release()
@@ -115,12 +111,18 @@ void Scene::draw() const
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projMatrix));
 	glUniform3f(cameraPosLoc, cameraPos.x, cameraPos.y, cameraPos.z);
 
+	// 메쉬 렌더링
+	for (const auto& mesh : meshes) {
+		glBindVertexArray(mesh.VAO);
+		glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
+	}
+
 
 	// 오브젝트 그리기
 	player->draw();		// 안그리긴 해도... 나중에 그릴 수 있으니 호출해준다
 
-	for (int i = 0; i < objectCount; ++i)
-		objects[i]->draw();		// 업캐스팅 시에도 RotateObject의 draw가 호출된다! -> virtual
+	//for (int i = 0; i < objectCount; ++i)
+	//	objects[i]->draw();		// 업캐스팅 시에도 RotateObject의 draw가 호출된다! -> virtual
 
 }
 
@@ -400,4 +402,106 @@ std::vector<glm::vec3> Scene::readOBJ(std::string filename)
 
 	std::cout << filename << " File Read, " << data.size() / 3 << " Vertices Exists." << std::endl;
 	return data;
+}
+
+const aiScene* Scene::loadModel(const std::string& filePath)
+{
+	Assimp::Importer importer;
+
+	const aiScene* scene = importer.ReadFile(
+		filePath,
+		aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_SortByPType
+	);
+
+	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+		std::cerr << "Error loading model: " << importer.GetErrorString() << std::endl;
+		return nullptr;
+	}
+
+	std::cout << "Model loaded successfully: " << filePath << std::endl;
+	return scene;
+}
+
+MeshData Scene::processMesh(const aiMesh* mesh)
+{
+	std::vector<float> vertices;
+	std::vector<unsigned int> indices;
+
+	// 정점 데이터 로드
+	for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+		vertices.push_back(mesh->mVertices[i].x);
+		vertices.push_back(mesh->mVertices[i].y);
+		vertices.push_back(mesh->mVertices[i].z);
+
+		if (mesh->HasNormals()) {
+			vertices.push_back(mesh->mNormals[i].x);
+			vertices.push_back(mesh->mNormals[i].y);
+			vertices.push_back(mesh->mNormals[i].z);
+		}
+
+		if (mesh->mTextureCoords[0]) {
+			vertices.push_back(mesh->mTextureCoords[0][i].x);
+			vertices.push_back(mesh->mTextureCoords[0][i].y);
+		}
+		else {
+			vertices.push_back(0.0f);
+			vertices.push_back(0.0f);
+		}
+	}
+
+	// 인덱스 데이터 로드
+	for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+		const aiFace& face = mesh->mFaces[i];
+		for (unsigned int j = 0; j < face.mNumIndices; j++) {
+			indices.push_back(face.mIndices[j]);
+		}
+	}
+
+	// OpenGL VAO/VBO/EBO 생성
+	GLuint VAO, VBO, EBO;
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &EBO);
+
+	glBindVertexArray(VAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), &vertices[0], GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
+
+	// 정점 속성 설정
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+
+	glBindVertexArray(0);
+
+	MeshData meshData = { VAO, VBO, EBO, static_cast<unsigned int>(indices.size()) };
+	return meshData;
+}
+
+void Scene::processNode(aiNode* node, const aiScene* scene, std::vector<MeshData>& meshes)
+{
+	for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+		aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+		meshes.push_back(processMesh(mesh));
+	}
+
+	for (unsigned int i = 0; i < node->mNumChildren; i++) {
+		processNode(node->mChildren[i], scene, meshes);
+	}
+}
+
+glm::mat4 Scene::calculateBoneTransform(float animationTime, const aiNodeAnim* channel)
+{
+	// 위치, 회전, 스케일 보간 및 본 변환 계산
+	aiVector3D position(0.0f, 0.0f, 0.0f);
+	aiQuaternion rotation(1.0f, 0.0f, 0.0f, 0.0f);
+	// ... 보간 로직 추가 ...
+	return glm::mat4(1.0f);
 }

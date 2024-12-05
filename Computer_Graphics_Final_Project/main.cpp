@@ -23,6 +23,124 @@ const std::string windowTitle = "MyGame";
 // Scene 클래스... 나중에는 게임에 카메라...플레이어... -> GameFramework
 Scene g_scene{ winWidth, winHeight };		// initialize_list --> 추후 들어볼 일 있을것...
 
+// *********************************************************************************************************************
+
+struct Vertex {
+	glm::vec3 position;
+	glm::vec3 normal;
+	glm::vec2 texCoords;
+};
+
+struct Tecture {
+	unsigned int id;
+	std::string type;
+	std::string path;
+};
+
+class Model {
+public:
+	Model(const std::string& path) {
+		loadModel(path);
+	}
+
+private:
+	void loadModel(const std::string& path) {
+		Assimp::Importer importer;
+
+		const aiScene* scene = importer.ReadFile(
+			path,
+			aiProcess_Triangulate |		// 삼각형으로 변환
+			aiProcess_FlipUVs |		// UV 뒤집기
+			aiProcess_GenNormals |	// 정점 노멀 생성
+			aiProcess_JoinIdenticalVertices	// 중복 정점 병합
+		);
+
+		if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+			std::cerr << "Error::Assimp::" << importer.GetErrorString() << std::endl;
+		}
+
+		processNode(scene->mRootNode, scene);
+	}
+
+	void processNode(aiNode* node, const aiScene* scene) {
+		// 노드에 포함된 모든 메쉬를 처리
+		for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+			processMesh(mesh, scene);
+		}
+
+		for (unsigned int i = 0; i < node->mNumChildren; i++) {
+			processNode(node->mChildren[i], scene);
+		}
+	}
+
+	void processMesh(aiMesh* mesh, const aiScene* scene) {
+		std::vector<Vertex> vertices;
+		std::vector<unsigned int> indices;
+
+		// 정점 데이터 처리
+		for (unsigned int i = 0; i < mesh->mNumAnimMeshes; i++) {
+			Vertex vertex;
+			vertex.position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+
+			if (mesh->HasNormals()) {
+				vertex.normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+			}
+
+			if (mesh->mTextureCoords[0]) {	// 텍스처 좌표가 있을 경우
+				vertex.texCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+			}
+			else {
+				vertex.texCoords = glm::vec2(0.0f, 0.0f);
+			}
+
+			vertices.push_back(vertex);
+		}
+
+		// 인덱스 데이터 처리
+		for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+			aiFace face = mesh->mFaces[i];
+			for (unsigned int j = 0; j < face.mNumIndices; j++) {
+				indices.push_back(face.mIndices[j]);
+			}
+		}
+
+		// 여기에 텍스처 처리 (생략 가능)
+	}
+};
+
+// 애니메이션 데이터 처리
+void processAnimation(const aiScene* scene) {
+	if (scene->HasAnimations()) {
+		for (unsigned int i = 0; i < scene->mNumAnimations; i++) {
+			aiAnimation* animation = scene->mAnimations[i];
+			std::cout << "Animation Name : " << animation->mName.C_Str() << std::endl;
+			std::cout << "Duration : " << animation->mDuration << std::endl;
+			std::cout << "Ticks Per Second : " << animation->mTicksPerSecond << std::endl;
+
+			for (unsigned int j = 0; j < animation->mNumChannels; j++) {
+				aiNodeAnim* channel = animation->mChannels[j];
+				std::cout << "Bone Name : " << channel->mNodeName.C_Str() << std::endl;
+
+				// 포지션 키프레임 출력
+				for (unsigned int k = 0; k < channel->mNumPositionKeys; k++) {
+					aiVectorKey  key = channel->mPositionKeys[k];
+					std::cout << "Time : " << key.mTime << ", Position : ("
+						<< key.mValue.x << ", "
+						<< key.mValue.y << ", "
+						<< key.mValue.z << ") " << std::endl;
+				}
+			}
+
+		}
+	}
+	else {
+		std::cout << "No animatinons found in the scene." << std::endl;
+	}
+}
+
+// *********************************************************************************************************************
+
 int main(int argc, char** argv)
 {
 	//--- 윈도우 생성하기 (freeglut)
@@ -79,6 +197,8 @@ void DisplayFunc(void)
 
 	// 씬을 그린다
 	g_scene.draw();
+
+	Model myModel("link.fbx");
 
 	// 후면버퍼를 전면 버퍼와 바꿔준다!
 	glutSwapBuffers();
